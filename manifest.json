@@ -1,0 +1,14 @@
+{
+  "name": "Vocodeur",
+  "short_name": "Vocodeur",
+  "description": "Vocodeur à canaux en temps réel, dans le style des voix de robot.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#cf0a1f",
+  "theme_color": "#cf0a1f",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

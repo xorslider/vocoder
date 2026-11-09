@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#cf0a1f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Vocodeur">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <title>Vocodeur</title>
+  <style>
+    :root {
+      --red: #cf0a1f;
+      --black: #000000;
+      --white: #ffffff;
+      --dimmed-segment: #262626;
+      --display-font: "Futura", "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--red); color: var(--white); font-family: var(--display-font); }
+    body {
+      min-height: 100%;
+      padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 24px);
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    main { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+    h1 { margin: 0; font-size: 3.4rem; line-height: 0.95; font-weight: 800; letter-spacing: -0.02em; }
+    header { border-bottom: 6px solid var(--white); padding-bottom: 12px; }
+    #statusMessage { margin: 10px 0 0; font-size: 1rem; line-height: 1.35; }
+
+    button {
+      font: inherit; font-weight: 700; color: var(--white); background: var(--black);
+      border: 2px solid var(--white); border-radius: 0; padding: 12px 14px; min-height: 48px;
+      touch-action: manipulation;
+    }
+    button[aria-pressed="true"], button.running { background: var(--white); color: var(--black); }
+    button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--black); outline-offset: 2px; }
+    #powerButton { font-size: 1.3rem; min-height: 60px; }
+
+    #levelDisplay { width: 100%; height: 130px; display: block; background: var(--black); border: 2px solid var(--white); }
+    .toolbar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+    #keyboard { position: relative; display: flex; height: 190px; border: 2px solid var(--white); background: var(--black); touch-action: none; }
+    .whiteKey { flex: 1; background: var(--white); border-right: 1px solid var(--black); position: relative; touch-action: none; }
+    .whiteKey span { position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 0.7rem; color: var(--black); font-weight: 700; }
+    .blackKey { position: absolute; top: 0; height: 62%; background: var(--black); border: 1px solid var(--white); border-top: none; z-index: 1; touch-action: none; }
+    .whiteKey.pressed { background: var(--red); }
+    .whiteKey.latched { background: #f2a5ad; }
+    .blackKey.pressed { background: var(--red); }
+    .blackKey.latched { background: #7a0612; }
+
+    details { border: 2px solid var(--white); background: var(--black); }
+    summary { padding: 14px; font-weight: 800; font-size: 1.1rem; cursor: pointer; min-height: 48px; }
+    .controlList { padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 14px; }
+    .control { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
+    .control input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--white); height: 32px; }
+    .control select { grid-column: 1 / -1; font: inherit; padding: 10px; background: var(--black); color: var(--white); border: 2px solid var(--white); border-radius: 0; }
+    .control output { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Vocodeur</h1>
+      <p id="statusMessage">Appuie sur Démarrer, tape une touche, puis parle. Un casque évite le larsen.</p>
+    </header>
+
+    <button id="powerButton" type="button">Démarrer</button>
+    <canvas id="levelDisplay" aria-label="Niveaux de la voix par bande de fréquences"></canvas>
+
+    <div class="toolbar">
+      <button id="holdButton" type="button" aria-pressed="true">Maintenir</button>
+      <button id="arpeggioButton" type="button" aria-pressed="false">Arpège</button>
+      <button id="silenceButton" type="button">Couper</button>
+    </div>
+
+    <div id="keyboard" aria-label="Clavier"></div>
+    <section id="controlGroups"></section>
+  </main>
+
+  <script>
+    const currentSettings = {
+      bandCount: 16,
+      sharpness: 1.2,
+      releaseMilliseconds: 40,
+      inputGain: 4,
+      noiseThreshold: 0.2,
+      sibilanceAmount: 1,
+      waveform: "sawtooth",
+      noiseMix: 0.05,
+      outputVolume: 1,
+      arpeggioEnabled: false,
+      tempoBeatsPerMinute: 120,
+      noteFrequencies: [],
+    };
+
+    const controlGroups = [
+      { title: "Voix", controls: [
+        { kind: "slider", settingName: "inputGain", label: "Gain du micro", minimum: 1, maximum: 12, step: 0.1 },
+        { kind: "slider", settingName: "noiseThreshold", label: "Seuil anti-bruit", minimum: 0, maximum: 1, step: 0.01 },
+        { kind: "slider", settingName: "sibilanceAmount", label: "Consonnes (s, ch, f)", minimum: 0, maximum: 3, step: 0.05 },
+      ]},
+      { title: "Son robot", controls: [
+        { kind: "choice", settingName: "waveform", label: "Forme d’onde", options: [
+          { value: "sawtooth", label: "Dent de scie" }, { value: "square", label: "Carré" } ] },
+        { kind: "slider", settingName: "noiseMix", label: "Souffle", minimum: 0, maximum: 1, step: 0.01 },
+        { kind: "slider", settingName: "outputVolume", label: "Volume", minimum: 0, maximum: 3, step: 0.05 },
+      ]},
+      { title: "Filtres", controls: [
+        { kind: "choice", settingName: "bandCount", label: "Nombre de bandes", options: [
+          { value: 8, label: "8 bandes" }, { value: 12, label: "12 bandes" },
+          { value: 16, label: "16 bandes" }, { value: 24, label: "24 bandes" } ] },
+        { kind: "slider", settingName: "sharpness", label: "Netteté des bandes", minimum: 0.5, maximum: 2.5, step: 0.1 },
+        { kind: "slider", settingName: "releaseMilliseconds", label: "Réactivité (ms)", minimum: 10, maximum: 200, step: 5 },
+      ]},
+      { title: "Arpège", controls: [
+        { kind: "slider", settingName: "tempoBeatsPerMinute", label: "Tempo (battements par minute)", minimum: 60, maximum: 240, step: 1 },
+      ]},
+    ];
+
+    let audioContext = null;
+    let microphoneStream = null;
+    let vocoderNode = null;
+    let latestBandLevels = [];
+
+    const powerButton = document.getElementById("powerButton");
+    const statusMessage = document.getElementById("statusMessage");
+
+    function sendSettingsToVocoder(changedSettings) {
+      Object.assign(currentSettings, changedSettings);
+      if (vocoderNode) {
+        vocoderNode.port.postMessage(changedSettings);
+      }
+    }
+
+    async function startVocoder() {
+      audioContext = new AudioContext({ latencyHint: "interactive" });
+      const contextResumed = audioContext.resume();
+      statusMessage.textContent = "Démarrage…";
+
+      try {
+        await audioContext.audioWorklet.addModule("vocoder-processor.js");
+        microphoneStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        });
+        const microphoneSource = audioContext.createMediaStreamSource(microphoneStream);
+        vocoderNode = new AudioWorkletNode(audioContext, "vocoder-processor", {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          outputChannelCount: [1],
+        });
+        vocoderNode.port.onmessage = (event) => { latestBandLevels = event.data.bandLevels; };
+        microphoneSource.connect(vocoderNode);
+        vocoderNode.connect(audioContext.destination);
+        vocoderNode.port.postMessage(currentSettings);
+        await contextResumed;
+
+        powerButton.textContent = "Arrêter";
+        powerButton.classList.add("running");
+        statusMessage.textContent = "Actif. Tape une touche et parle dans le micro.";
+      } catch (error) {
+        await stopVocoder();
+        statusMessage.textContent = "Impossible de démarrer : autorise le micro dans Réglages > Safari, puis réessaie.";
+      }
+    }
+
+    async function stopVocoder() {
+      if (microphoneStream) {
+        microphoneStream.getTracks().forEach((track) => track.stop());
+      }
+      if (audioContext) {
+        await audioContext.close();
+      }
+      audioContext = null;
+      microphoneStream = null;
+      vocoderNode = null;
+      latestBandLevels = [];
+      powerButton.textContent = "Démarrer";
+      powerButton.classList.remove("running");
+      statusMessage.textContent = "Arrêté. Appuie sur Démarrer pour reprendre.";
+    }
+
+    powerButton.addEventListener("click", () => {
+      if (audioContext) { stopVocoder(); } else { startVocoder(); }
+    });
+
+    const firstMidiNote = 48;
+    const lastMidiNote = 71;
+    const blackKeyPitchClasses = [1, 3, 6, 8, 10];
+    const frenchNoteNames = ["Do", "Do#", "Ré", "Ré#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si"];
+
+    const physicallyPressedNotes = new Set();
+    let latchedNotes = [];
+    let holdEnabled = true;
+    const keyElementsByMidiNote = new Map();
+
+    function frequencyOfMidiNote(midiNote) {
+      return 440 * Math.pow(2, (midiNote - 69) / 12);
+    }
+
+    function refreshNotes() {
+      const soundingNotes = holdEnabled ? latchedNotes : [...physicallyPressedNotes];
+      const sortedFrequencies = soundingNotes.map(frequencyOfMidiNote).sort((first, second) => first - second);
+      sendSettingsToVocoder({ noteFrequencies: sortedFrequencies });
+
+      keyElementsByMidiNote.forEach((keyElement, midiNote) => {
+        keyElement.classList.toggle("pressed", physicallyPressedNotes.has(midiNote));
+        keyElement.classList.toggle("latched", holdEnabled && latchedNotes.includes(midiNote) && !physicallyPressedNotes.has(midiNote));
+      });
+    }
+
+    function pressNote(midiNote) {
+      physicallyPressedNotes.add(midiNote);
+      if (holdEnabled) {
+        const isFirstFingerDown = physicallyPressedNotes.size === 1;
+        latchedNotes = isFirstFingerDown ? [midiNote] : [...latchedNotes, midiNote].slice(-4);
+      }
+      refreshNotes();
+    }
+
+    function releaseNote(midiNote) {
+      physicallyPressedNotes.delete(midiNote);
+      refreshNotes();
+    }
+
+    function buildKeyboard() {
+      const keyboardElement = document.getElementById("keyboard");
+      const whiteKeyMidiNotes = [];
+      for (let midiNote = firstMidiNote; midiNote <= lastMidiNote; midiNote++) {
+        if (!blackKeyPitchClasses.includes(midiNote % 12)) { whiteKeyMidiNotes.push(midiNote); }
+      }
+      const whiteKeyWidthPercent = 100 / whiteKeyMidiNotes.length;
+      const blackKeyWidthPercent = whiteKeyWidthPercent * 0.62;
+
+      let whiteKeyIndex = 0;
+      for (let midiNote = firstMidiNote; midiNote <= lastMidiNote; midiNote++) {
+        const pitchClass = midiNote % 12;
+        const isBlackKey = blackKeyPitchClasses.includes(pitchClass);
+        const keyElement = document.createElement("div");
+
+        if (isBlackKey) {
+          keyElement.className = "blackKey";
+          keyElement.style.width = blackKeyWidthPercent + "%";
+          keyElement.style.left = whiteKeyIndex * whiteKeyWidthPercent - blackKeyWidthPercent / 2 + "%";
+        } else {
+          keyElement.className = "whiteKey";
+          if (pitchClass === 0) {
+            const label = document.createElement("span");
+            label.textContent = frenchNoteNames[0] + (Math.floor(midiNote / 12) - 1);
+            keyElement.appendChild(label);
+          }
+          whiteKeyIndex += 1;
+        }
+
+        keyElement.addEventListener("pointerdown", (event) => {
+          event.preventDefault();
+          keyElement.setPointerCapture(event.pointerId);
+          pressNote(midiNote);
+        });
+        keyElement.addEventListener("pointerup", () => releaseNote(midiNote));
+        keyElement.addEventListener("pointercancel", () => releaseNote(midiNote));
+        keyElementsByMidiNote.set(midiNote, keyElement);
+        keyboardElement.appendChild(keyElement);
+      }
+    }
+
+    const holdButton = document.getElementById("holdButton");
+    holdButton.addEventListener("click", () => {
+      holdEnabled = !holdEnabled;
+      holdButton.setAttribute("aria-pressed", String(holdEnabled));
+      latchedNotes = [];
+      refreshNotes();
+    });
+
+    const arpeggioButton = document.getElementById("arpeggioButton");
+    arpeggioButton.addEventListener("click", () => {
+      const arpeggioEnabled = arpeggioButton.getAttribute("aria-pressed") !== "true";
+      arpeggioButton.setAttribute("aria-pressed", String(arpeggioEnabled));
+      sendSettingsToVocoder({ arpeggioEnabled });
+    });
+
+    document.getElementById("silenceButton").addEventListener("click", () => {
+      latchedNotes = [];
+      refreshNotes();
+    });
+
+    function buildControlGroups() {
+      const container = document.getElementById("controlGroups");
+      container.style.display = "flex";
+      container.style.flexDirection = "column";
+      container.style.gap = "8px";
+
+      controlGroups.forEach((group) => {
+        const detailsElement = document.createElement("details");
+        const summaryElement = document.createElement("summary");
+        summaryElement.textContent = group.title;
+        detailsElement.appendChild(summaryElement);
+        const listElement = document.createElement("div");
+        listElement.className = "controlList";
+
+        group.controls.forEach((definition) => {
+          const controlElement = document.createElement("div");
+          controlElement.className = "control";
+          const labelElement = document.createElement("label");
+          const inputId = "control-" + definition.settingName;
+          labelElement.htmlFor = inputId;
+          labelElement.textContent = definition.label;
+          controlElement.appendChild(labelElement);
+
+          if (definition.kind === "slider") {
+            const valueElement = document.createElement("output");
+            const sliderElement = document.createElement("input");
+            sliderElement.type = "range";
+            sliderElement.id = inputId;
+            sliderElement.min = definition.minimum;
+            sliderElement.max = definition.maximum;
+            sliderElement.step = definition.step;
+            sliderElement.value = currentSettings[definition.settingName];
+            valueElement.textContent = sliderElement.value;
+            sliderElement.addEventListener("input", () => {
+              valueElement.textContent = sliderElement.value;
+              sendSettingsToVocoder({ [definition.settingName]: Number(sliderElement.value) });
+            });
+            controlElement.append(valueElement, sliderElement);
+          } else {
+            const selectElement = document.createElement("select");
+            selectElement.id = inputId;
+            definition.options.forEach((option) => {
+              const optionElement = document.createElement("option");
+              optionElement.value = option.value;
+              optionElement.textContent = option.label;
+              selectElement.appendChild(optionElement);
+            });
+            selectElement.value = currentSettings[definition.settingName];
+            selectElement.addEventListener("change", () => {
+              const isNumericSetting = typeof currentSettings[definition.settingName] === "number";
+              const chosenValue = isNumericSetting ? Number(selectElement.value) : selectElement.value;
+              sendSettingsToVocoder({ [definition.settingName]: chosenValue });
+            });
+            controlElement.appendChild(selectElement);
+          }
+          listElement.appendChild(controlElement);
+        });
+
+        detailsElement.appendChild(listElement);
+        container.appendChild(detailsElement);
+      });
+    }
+
+    const levelDisplayCanvas = document.getElementById("levelDisplay");
+    const levelDisplayContext = levelDisplayCanvas.getContext("2d");
+    const segmentCount = 12;
+    const smoothedBandLevels = new Float32Array(24);
+
+    function drawLevelDisplay() {
+      const pixelRatio = window.devicePixelRatio || 1;
+      const cssWidth = levelDisplayCanvas.clientWidth;
+      const cssHeight = levelDisplayCanvas.clientHeight;
+      if (levelDisplayCanvas.width !== Math.round(cssWidth * pixelRatio)) {
+        levelDisplayCanvas.width = Math.round(cssWidth * pixelRatio);
+        levelDisplayCanvas.height = Math.round(cssHeight * pixelRatio);
+      }
+      levelDisplayContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      levelDisplayContext.fillStyle = "#000000";
+      levelDisplayContext.fillRect(0, 0, cssWidth, cssHeight);
+
+      const bandCount = currentSettings.bandCount;
+      const padding = 10;
+      const gap = 4;
+      const bandWidth = (cssWidth - padding * 2 - gap * (bandCount - 1)) / bandCount;
+      const segmentHeight = (cssHeight - padding * 2 - gap * (segmentCount - 1)) / segmentCount;
+
+      for (let bandIndex = 0; bandIndex < bandCount; bandIndex++) {
+        const rawLevel = latestBandLevels[bandIndex] || 0;
+        const targetLevel = Math.min(1, Math.sqrt(rawLevel * 6));
+        smoothedBandLevels[bandIndex] = Math.max(targetLevel, smoothedBandLevels[bandIndex] * 0.88);
+        const litSegmentCount = Math.round(smoothedBandLevels[bandIndex] * segmentCount);
+
+        for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
+          const isLit = segmentIndex < litSegmentCount;
+          const isPeakSegment = segmentIndex >= segmentCount - 2;
+          levelDisplayContext.fillStyle = isLit ? (isPeakSegment ? "#cf0a1f" : "#ffffff") : "#262626";
+          const positionX = padding + bandIndex * (bandWidth + gap);
+          const positionY = cssHeight - padding - (segmentIndex + 1) * segmentHeight - segmentIndex * gap;
+          levelDisplayContext.fillRect(positionX, positionY, bandWidth, segmentHeight);
+        }
+      }
+      requestAnimationFrame(drawLevelDisplay);
+    }
+
+    buildKeyboard();
+    buildControlGroups();
+    drawLevelDisplay();
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("service-worker.js");
+    }
+  </script>
+</body>
+</html>
