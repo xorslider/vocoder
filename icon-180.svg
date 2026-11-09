@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 512 512" role="img" aria-label="Vocodeur">
+  <rect width="512" height="512" fill="#cf0a1f"/>
+  <rect x="116" y="116" width="280" height="280" fill="#000000"/>
+  <g fill="#ffffff">
+    <rect x="156" y="278" width="16" height="18"/>
+    <rect x="180" y="262" width="16" height="34"/>
+    <rect x="204" y="248" width="16" height="48"/>
+    <rect x="228" y="232" width="16" height="64"/>
+    <rect x="252" y="220" width="16" height="76"/>
+    <rect x="276" y="234" width="16" height="62"/>
+    <rect x="300" y="248" width="16" height="48"/>
+    <rect x="324" y="262" width="16" height="34"/>
+    <rect x="348" y="278" width="16" height="18"/>
+    <rect x="172" y="314" width="14" height="18"/>
+    <rect x="194" y="300" width="14" height="32"/>
+    <rect x="216" y="284" width="14" height="48"/>
+    <rect x="238" y="268" width="14" height="64"/>
+    <rect x="260" y="252" width="14" height="80"/>
+    <rect x="282" y="238" width="14" height="94"/>
+    <rect x="304" y="252" width="14" height="80"/>
+    <rect x="326" y="268" width="14" height="64"/>
+    <rect x="348" y="284" width="14" height="48"/>
+    <rect x="370" y="300" width="14" height="32"/>
+  </g>
+  <rect x="252" y="180" width="16" height="16" fill="#cf0a1f"/>
+</svg>
